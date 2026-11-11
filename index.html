@@ -1,0 +1,1188 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Desafio até chegar na cama</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #171725;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+h1 {
+    color: #ffcc55;
+    margin: 12px;
+}
+
+#game {
+    display: block;
+    width: 96%;
+    max-width: 1000px;
+    height: auto;
+    margin: auto;
+    background: #222744;
+    border: 3px solid #ffcc55;
+}
+
+#hud {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    font-weight: bold;
+}
+
+#instructions {
+    padding: 10px;
+    color: #ddd;
+    font-size: 14px;
+}
+
+.screen {
+    position: fixed;
+    inset: 0;
+    background: rgba(10,10,25,.96);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    z-index: 5;
+}
+
+.hidden {
+    display: none !important;
+}
+
+button {
+    background: #ffcc55;
+    color: #222;
+    border: none;
+    padding: 14px 25px;
+    margin: 8px;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+input {
+    padding: 12px;
+    font-size: 18px;
+    border-radius: 8px;
+    border: none;
+    margin: 10px;
+    width: 230px;
+    text-align: center;
+}
+
+#ranking {
+    line-height: 1.6;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🌙 DESAFIO ATÉ CHEGAR NA CAMA</h1>
+
+<div id="hud">
+    <span id="lives">❤️ Vidas: 3</span>
+    <span id="score">⭐ Pontos: 0</span>
+    <span id="distance">📍 Distância: 0</span>
+    <span id="timer">⏱️ Tempo: 0.00s</span>
+</div>
+
+<canvas id="game" width="1000" height="550"></canvas>
+
+<div id="instructions">
+    A/D ou ←/→: andar | ESPAÇO: pular |
+    X: atacar | SHIFT: correr
+</div>
+
+<div id="menu" class="screen">
+    <h1>🌙 DESAFIO ATÉ CHEGAR NA CAMA</h1>
+    <h2>Sua missão é chegar até a cama!</h2>
+    <p>Supere os obstáculos e derrote o celular gigante.</p>
+    <p>Será que você consegue vencer?</p>
+    <input id="playerName" maxlength="15" placeholder="Digite seu nome">
+    <button onclick="startGame()">COMEÇAR</button>
+</div>
+
+<div id="bossIntro" class="screen hidden">
+    <h1>📱 CHEGOU A HORA!</h1>
+    <h2>O CHEFÃO: CELULAR VICIANTE</h2>
+    <p>Ele não vai deixar você dormir!</p>
+    <p>Espere ele ficar vulnerável e ataque com X.</p>
+    <button onclick="startBoss()">ENFRENTAR!</button>
+</div>
+
+<div id="gameOver" class="screen hidden">
+    <h1>💤 VOCÊ NÃO CONSEGUIU!</h1>
+    <p id="finalScore"></p>
+    <button onclick="restartGame()">TENTAR NOVAMENTE</button>
+    <button onclick="backToMenu()">MENU</button>
+</div>
+
+<div id="victory" class="screen hidden">
+    <h1>🏆 VOCÊ VENCEU!</h1>
+    <h2>Finalmente chegou a hora de dormir!</h2>
+    <p id="victoryTime"></p>
+    <input id="winnerName" maxlength="15" placeholder="Seu nome">
+    <button onclick="saveRecord()">SALVAR TEMPO</button>
+    <div id="ranking"></div>
+    <button onclick="backToMenu()">MENU</button>
+</div>
+
+<script>
+"use strict";
+
+// ===================================
+// CONFIGURAÇÕES E VARIÁVEIS
+// ===================================
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+const ground = 465;
+
+let state = "menu";
+let player = null;
+let obstacles = [];
+let particles = [];
+let bossProjectiles = [];
+let boss = null;
+
+let score = 0;
+let distance = 0;
+let lives = 3;
+let gameTime = 0;
+let bossTime = 0;
+
+let obstacleCounter = 0;
+let attackCooldown = 0;
+let invulnerability = 0;
+
+let lastFrame = 0;
+let animationId = null;
+
+let keys = {};
+
+const gravity = 1800;
+const jumpPower = -650;
+const scrollSpeed = 330;
+
+const playerNameInput =
+    document.getElementById("playerName");
+
+function hideScreens() {
+    document.querySelectorAll(".screen").forEach(screen => {
+        screen.classList.add("hidden");
+    });
+}
+
+function createPlayer() {
+    return {
+        x: 130,
+        y: ground - 65,
+        w: 48,
+        h: 65,
+        vx: 0,
+        vy: 0,
+        facing: 1,
+        onGround: true
+    };
+}
+
+// ===================================
+// CONTROLES E INÍCIO
+// ===================================
+
+function startGame() {
+    if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+    }
+
+    hideScreens();
+
+    player = createPlayer();
+
+    obstacles = [];
+    particles = [];
+    bossProjectiles = [];
+    boss = null;
+
+    score = 0;
+    distance = 0;
+    lives = 3;
+    gameTime = 0;
+    bossTime = 0;
+
+    obstacleCounter = 0;
+    attackCooldown = 0;
+    invulnerability = 0;
+
+    state = "playing";
+
+    updateHUD();
+
+    lastFrame = performance.now();
+    animationId = requestAnimationFrame(loop);
+}
+
+function restartGame() {
+    startGame();
+}
+
+function backToMenu() {
+    if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+
+    state = "menu";
+    hideScreens();
+
+    document.getElementById("menu")
+        .classList.remove("hidden");
+}
+
+window.addEventListener("keydown", function(e) {
+    const key = e.key.toLowerCase();
+
+    keys[key] = true;
+
+    if (
+        e.code === "Space" ||
+        e.key.startsWith("Arrow")
+    ) {
+        e.preventDefault();
+    }
+
+    if (
+        e.code === "Space" &&
+        state === "playing" &&
+        player &&
+        player.onGround
+    ) {
+        player.vy = jumpPower;
+        player.onGround = false;
+    }
+
+    if (
+        key === "x" &&
+        (state === "playing" || state === "boss")
+    ) {
+        attack();
+    }
+});
+
+window.addEventListener("keyup", function(e) {
+    keys[e.key.toLowerCase()] = false;
+});
+
+// ===================================
+// COLISÕES
+// ===================================
+
+function collision(a, b) {
+    return (
+        a.x < b.x + b.w &&
+        a.x + a.w > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.h > b.y
+    );
+}
+
+// ===================================
+// MOVIMENTAÇÃO DO PERSONAGEM
+// ===================================
+
+function updatePlayer(dt) {
+    const left =
+        keys["a"] || keys["arrowleft"];
+
+    const right =
+        keys["d"] || keys["arrowright"];
+
+    const running = keys["shift"];
+
+    const speed = running ? 480 : 300;
+
+    player.vx = 0;
+
+    if (left) {
+        player.vx = -speed;
+        player.facing = -1;
+    }
+
+    if (right) {
+        player.vx = speed;
+        player.facing = 1;
+    }
+
+    player.x += player.vx * dt;
+
+    player.x = Math.max(
+        0,
+        Math.min(W - player.w, player.x)
+    );
+
+    player.vy += gravity * dt;
+    player.y += player.vy * dt;
+
+    if (player.y + player.h >= ground) {
+        player.y = ground - player.h;
+        player.vy = 0;
+        player.onGround = true;
+    }
+
+    if (attackCooldown > 0) {
+        attackCooldown -= dt;
+    }
+
+    if (invulnerability > 0) {
+        invulnerability -= dt;
+    }
+}
+
+// ===================================
+// OBSTÁCULOS
+// ===================================
+
+function spawnObstacle() {
+    const types = [
+        { emoji: "📚", w: 45, h: 55 },
+        { emoji: "🧸", w: 55, h: 48 },
+        { emoji: "🪑", w: 60, h: 65 },
+        { emoji: "🧦", w: 45, h: 35 },
+        { emoji: "📦", w: 55, h: 50 }
+    ];
+
+    const type = types[
+        Math.floor(Math.random() * types.length)
+    ];
+
+    obstacles.push({
+        x: W + 30,
+        y: ground - type.h,
+        w: type.w,
+        h: type.h,
+        emoji: type.emoji,
+        passed: false
+    });
+}
+
+function updateObstacles(dt) {
+    obstacleCounter += dt;
+
+    if (obstacleCounter > 1.3) {
+        spawnObstacle();
+        obstacleCounter = 0;
+    }
+
+    const speed = scrollSpeed * dt;
+
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+        const obstacle = obstacles[i];
+
+        obstacle.x -= speed;
+
+        if (collision(player, obstacle)) {
+            if (invulnerability <= 0) {
+                lives--;
+                invulnerability = 1.2;
+
+                createParticles(
+                    player.x + player.w / 2,
+                    player.y + player.h / 2,
+                    "#ff5555"
+                );
+
+                if (lives <= 0) {
+                    finish(false);
+                    return;
+                }
+            }
+        }
+
+        if (
+            !obstacle.passed &&
+            obstacle.x + obstacle.w < player.x
+        ) {
+            obstacle.passed = true;
+            score += 10;
+        }
+
+        if (obstacle.x + obstacle.w < 0) {
+            obstacles.splice(i, 1);
+        }
+    }
+}
+
+// ===================================
+// PARTÍCULAS
+// ===================================
+
+function createParticles(x, y, color) {
+    for (let i = 0; i < 12; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 300,
+            vy: (Math.random() - 0.5) * 300,
+            life: 1,
+            color: color,
+            size: Math.random() * 5 + 2
+        });
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt * 1.5;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
+// ===================================
+// ATUALIZAÇÃO DA FASE
+// ===================================
+
+function updateGame(dt) {
+    gameTime += dt;
+    distance += scrollSpeed * dt;
+
+    updatePlayer(dt);
+    updateObstacles(dt);
+    updateParticles(dt);
+
+    if (state !== "playing") return;
+
+    if (distance >= 5500) {
+        state = "bossIntro";
+
+        document.getElementById("bossIntro")
+            .classList.remove("hidden");
+
+        return;
+    }
+
+    updateHUD();
+}
+
+// ===================================
+// HUD
+// ===================================
+
+function updateHUD() {
+    document.getElementById("lives").textContent =
+        "❤️ Vidas: " + lives;
+
+    document.getElementById("score").textContent =
+        "⭐ Pontos: " + score;
+
+    document.getElementById("distance").textContent =
+        "📍 Distância: " + Math.floor(distance);
+
+    document.getElementById("timer").textContent =
+        "⏱️ Tempo: " + gameTime.toFixed(2) + "s";
+}
+
+// ===================================
+// CHEFÃO FINAL
+// ===================================
+
+function startBoss() {
+    hideScreens();
+
+    state = "boss";
+
+    bossTime = 0;
+    bossProjectiles = [];
+    particles = [];
+
+    boss = {
+        x: W - 200,
+        y: ground - 145,
+        w: 100,
+        h: 145,
+        hp: 14,
+        maxHp: 14,
+        vulnerable: false,
+        timer: 0,
+        attackTimer: 1.5,
+        direction: -1
+    };
+
+    player.x = 130;
+    player.y = ground - player.h;
+    player.vx = 0;
+    player.vy = 0;
+
+    attackCooldown = 0;
+    invulnerability = 0;
+
+    lastFrame = performance.now();
+    animationId = requestAnimationFrame(loop);
+}
+
+// ===================================
+// ATAQUE DO JOGADOR
+// ===================================
+
+function attack() {
+    if (attackCooldown > 0) return;
+
+    attackCooldown = 0.4;
+
+    if (state === "playing") {
+        createParticles(
+            player.x + player.w / 2,
+            player.y + 20,
+            "#ffcc55"
+        );
+
+        score += 2;
+        return;
+    }
+
+    if (state !== "boss" || !boss) return;
+
+    const dx = Math.abs(
+        (player.x + player.w / 2) -
+        (boss.x + boss.w / 2)
+    );
+
+    const dy = Math.abs(
+        (player.y + player.h / 2) -
+        (boss.y + boss.h / 2)
+    );
+
+    if (
+        dx < 155 &&
+        dy < 145 &&
+        boss.vulnerable
+    ) {
+        boss.hp--;
+
+        createParticles(
+            boss.x + boss.w / 2,
+            boss.y + boss.h / 2,
+            "#55ffbb"
+        );
+
+        score += 50;
+
+        if (boss.hp <= 0) {
+            finish(true);
+        }
+    }
+}
+
+// ===================================
+// ATUALIZAÇÃO DO CHEFÃO
+// ===================================
+
+function updateBoss(dt) {
+    if (!boss || state !== "boss") return;
+
+    bossTime += dt;
+    boss.timer += dt;
+    boss.attackTimer -= dt;
+
+    boss.vulnerable =
+        (boss.timer % 4.5) > 2.3;
+
+    // Movimento do celular
+    boss.x += boss.direction * 75 * dt;
+
+    if (boss.x < W - 390) {
+        boss.direction = 1;
+    }
+
+    if (boss.x > W - 150) {
+        boss.direction = -1;
+    }
+
+    // Ataques do celular
+    if (boss.attackTimer <= 0) {
+        boss.attackTimer = 2.2;
+
+        const attackType =
+            Math.floor(Math.random() * 3);
+
+        if (attackType === 0) {
+            // Chuva de notificações
+            for (let i = 0; i < 5; i++) {
+                bossProjectiles.push({
+                    x: 100 + Math.random() * (W - 150),
+                    y: -30,
+                    w: 35,
+                    h: 35,
+                    vx: 0,
+                    vy: 300,
+                    emoji: "🔔"
+                });
+            }
+        }
+
+        else if (attackType === 1) {
+            // Mensagem
+            bossProjectiles.push({
+                x: boss.x,
+                y: boss.y + 65,
+                w: 35,
+                h: 30,
+                vx: -350,
+                vy: 0,
+                emoji: "💬"
+            });
+        }
+
+        else {
+            // Onda elétrica
+            bossProjectiles.push({
+                x: boss.x,
+                y: ground - 35,
+                w: 45,
+                h: 35,
+                vx: -400,
+                vy: 0,
+                emoji: "⚡"
+            });
+        }
+    }
+
+    // Atualizar projéteis
+    for (
+        let i = bossProjectiles.length - 1;
+        i >= 0;
+        i--
+    ) {
+        const p = bossProjectiles[i];
+
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        if (collision(player, p)) {
+            if (invulnerability <= 0) {
+                lives--;
+                invulnerability = 1.2;
+
+                createParticles(
+                    player.x + player.w / 2,
+                    player.y + player.h / 2,
+                    "#ff5555"
+                );
+
+                if (lives <= 0) {
+                    finish(false);
+                    return;
+                }
+            }
+
+            bossProjectiles.splice(i, 1);
+            continue;
+        }
+
+        if (
+            p.x < -60 ||
+            p.x > W + 60 ||
+            p.y > H + 60
+        ) {
+            bossProjectiles.splice(i, 1);
+        }
+    }
+
+    // Colisão com o corpo do celular
+    if (
+        collision(player, boss) &&
+        invulnerability <= 0
+    ) {
+        lives--;
+        invulnerability = 1.2;
+
+        if (lives <= 0) {
+            finish(false);
+            return;
+        }
+    }
+
+    updateParticles(dt);
+    updateHUD();
+
+    document.getElementById("timer").textContent =
+        "⏱️ CHEFÃO: " + bossTime.toFixed(2) + "s";
+}
+
+// ===================================
+// DESENHO DO CHEFÃO
+// ===================================
+
+function drawBoss() {
+    if (!boss) return;
+
+    ctx.save();
+
+    // Corpo do celular
+    ctx.fillStyle = "#15151d";
+
+    ctx.fillRect(
+        boss.x,
+        boss.y,
+        boss.w,
+        boss.h
+    );
+
+    // Tela
+    ctx.fillStyle = boss.vulnerable
+        ? "#55ffbb"
+        : "#b83d55";
+
+    ctx.fillRect(
+        boss.x + 8,
+        boss.y + 12,
+        boss.w - 16,
+        boss.h - 27
+    );
+
+    // Rosto
+    ctx.font = "48px Arial";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffffff";
+
+    ctx.fillText(
+        boss.vulnerable ? "😵" : "😈",
+        boss.x + boss.w / 2,
+        boss.y + 85
+    );
+
+    ctx.restore();
+
+    // Barra de vida
+    const barWidth = 220;
+
+    ctx.fillStyle = "#333";
+    ctx.fillRect(390, 25, barWidth, 18);
+
+    ctx.fillStyle = "#ff4444";
+
+    ctx.fillRect(
+        390,
+        25,
+        barWidth * (boss.hp / boss.maxHp),
+        18
+    );
+
+    ctx.strokeStyle = "#fff";
+    ctx.strokeRect(390, 25, barWidth, 18);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "16px Arial";
+    ctx.textAlign = "center";
+
+    ctx.fillText("VIDA DO CELULAR", 500, 17);
+
+    ctx.fillText(
+        boss.vulnerable
+            ? "ATAQUE AGORA!"
+            : "ESPERE ELE FICAR VULNERÁVEL!",
+        500,
+        70
+    );
+}
+
+// ===================================
+// CENÁRIO
+// ===================================
+
+function drawBackground() {
+    const gradient = ctx.createLinearGradient(
+        0, 0, 0, H
+    );
+
+    gradient.addColorStop(0, "#222744");
+    gradient.addColorStop(1, "#777b9b");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+
+    // Lua
+    ctx.fillStyle = "#fff0b5";
+    ctx.beginPath();
+    ctx.arc(830, 90, 38, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Estrelas
+    ctx.fillStyle = "#ffffff";
+
+    for (let i = 0; i < 35; i++) {
+        const x = (i * 137) % W;
+        const y = (i * 53) % 260;
+
+        ctx.fillRect(x, y, 3, 3);
+    }
+
+    // Chão
+    ctx.fillStyle = "#343047";
+    ctx.fillRect(0, ground, W, H - ground);
+
+    ctx.fillStyle = "#a4a0c0";
+    ctx.fillRect(0, ground, W, 8);
+}
+
+// ===================================
+// DESENHO DO PERSONAGEM
+// ===================================
+
+function drawPlayer() {
+    if (!player) return;
+
+    ctx.save();
+
+    if (
+        invulnerability > 0 &&
+        Math.floor(invulnerability * 12) % 2 === 0
+    ) {
+        ctx.globalAlpha = 0.35;
+    }
+
+    // Corpo
+    ctx.fillStyle = "#ffcc55";
+
+    ctx.fillRect(
+        player.x,
+        player.y + 18,
+        player.w,
+        player.h - 18
+    );
+
+    // Cabeça
+    ctx.fillStyle = "#ffd6b0";
+
+    ctx.beginPath();
+
+    ctx.arc(
+        player.x + player.w / 2,
+        player.y + 15,
+        17,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fill();
+
+    // Cabelo
+    ctx.fillStyle = "#49302c";
+
+    ctx.fillRect(
+        player.x + 9,
+        player.y - 2,
+        30,
+        12
+    );
+
+    // Olhos
+    ctx.fillStyle = "#222";
+
+    ctx.fillRect(
+        player.x + 13,
+        player.y + 13,
+        4,
+        4
+    );
+
+    ctx.fillRect(
+        player.x + 29,
+        player.y + 13,
+        4,
+        4
+    );
+
+    // Pernas
+    ctx.fillStyle = "#333b80";
+
+    ctx.fillRect(
+        player.x + 5,
+        player.y + player.h - 12,
+        15,
+        12
+    );
+
+    ctx.fillRect(
+        player.x + 28,
+        player.y + player.h - 12,
+        15,
+        12
+    );
+
+    ctx.restore();
+}
+
+// ===================================
+// DESENHO DOS OBSTÁCULOS
+// ===================================
+
+function drawObstacles() {
+    ctx.textAlign = "center";
+
+    for (const obstacle of obstacles) {
+        ctx.font = "45px Arial";
+
+        ctx.fillText(
+            obstacle.emoji,
+            obstacle.x + obstacle.w / 2,
+            obstacle.y + obstacle.h
+        );
+    }
+}
+
+// ===================================
+// DESENHO DOS PROJÉTEIS
+// ===================================
+
+function drawProjectiles() {
+    ctx.textAlign = "center";
+    ctx.font = "32px Arial";
+
+    for (const p of bossProjectiles) {
+        ctx.fillText(
+            p.emoji,
+            p.x + p.w / 2,
+            p.y + p.h
+        );
+    }
+}
+
+// ===================================
+// DESENHO DAS PARTÍCULAS
+// ===================================
+
+function drawParticles() {
+    for (const p of particles) {
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color || "#ffffff";
+
+        ctx.beginPath();
+
+        ctx.arc(
+            p.x,
+            p.y,
+            p.size || 3,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+// ===================================
+// DESENHO DAS FASES
+// ===================================
+
+function drawGame() {
+    drawBackground();
+    drawObstacles();
+    drawPlayer();
+    drawParticles();
+}
+
+function drawBossScene() {
+    drawBackground();
+    drawPlayer();
+    drawBoss();
+    drawProjectiles();
+    drawParticles();
+}
+
+// ===================================
+// ANIMAÇÃO PRINCIPAL
+// ===================================
+
+function loop(timestamp) {
+    const dt = Math.min(
+        (timestamp - lastFrame) / 1000,
+        0.04
+    );
+
+    lastFrame = timestamp;
+
+    if (state === "playing") {
+        updateGame(dt);
+        drawGame();
+    }
+
+    else if (state === "boss") {
+        updatePlayer(dt);
+        updateBoss(dt);
+
+        if (state === "boss") {
+            drawBossScene();
+        }
+    }
+
+    else {
+        animationId = null;
+        return;
+    }
+
+    if (
+        state === "playing" ||
+        state === "boss"
+    ) {
+        animationId = requestAnimationFrame(loop);
+    } else {
+        animationId = null;
+    }
+}
+
+// ===================================
+// VITÓRIA E DERROTA
+// ===================================
+
+function finish(won) {
+    if (
+        state === "victory" ||
+        state === "gameOver"
+    ) {
+        return;
+    }
+
+    if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+
+    hideScreens();
+
+    if (won) {
+        state = "victory";
+
+        document.getElementById("victoryTime")
+            .textContent =
+            "Seu tempo: " +
+            bossTime.toFixed(2) +
+            " segundos!";
+
+        document.getElementById("winnerName").value =
+            playerNameInput.value.trim();
+
+        document.getElementById("victory")
+            .classList.remove("hidden");
+
+        showRanking();
+    }
+
+    else {
+        state = "gameOver";
+
+        document.getElementById("finalScore")
+            .textContent =
+            "Pontuação: " + score +
+            " | Distância: " + Math.floor(distance);
+
+        document.getElementById("gameOver")
+            .classList.remove("hidden");
+    }
+}
+
+// ===================================
+// RANKING DOS CINCO MELHORES
+// ===================================
+
+function getRecords() {
+    try {
+        return JSON.parse(
+            localStorage.getItem("desafioRanking")
+        ) || [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function saveRecord() {
+    const name =
+        document.getElementById("winnerName")
+            .value.trim() || "Jogador";
+
+    const records = getRecords();
+
+    records.push({
+        name: name,
+        time: bossTime
+    });
+
+    records.sort((a, b) => a.time - b.time);
+
+    const topFive = records.slice(0, 5);
+
+    try {
+        localStorage.setItem(
+            "desafioRanking",
+            JSON.stringify(topFive)
+        );
+    } catch (error) {
+        alert("Não foi possível salvar o ranking neste navegador.");
+    }
+
+    showRanking();
+
+    document.getElementById("winnerName").value = "";
+}
+
+function showRanking() {
+    const ranking = getRecords();
+
+    let html = "<h3>🏆 MELHORES TEMPOS</h3>";
+
+    if (ranking.length === 0) {
+        html += "<p>Ninguém venceu ainda!</p>";
+    }
+
+    ranking.forEach((record, index) => {
+        html +=
+            "<p>" +
+            (index + 1) +
+            "º - " +
+            record.name +
+            ": " +
+            Number(record.time).toFixed(2) +
+            "s</p>";
+    });
+
+    document.getElementById("ranking").innerHTML = html;
+}
+
+// ===================================
+// FINAL DO ARQUIVO
+// ===================================
+
+showRanking();
+
+</script>
+</body>
+</html>
