@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -7,9 +6,7 @@
 <title>Desafio até chegar na cama</title>
 
 <style>
-* {
-    box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
     margin: 0;
@@ -19,10 +16,7 @@ body {
     text-align: center;
 }
 
-h1 {
-    color: #ffcc55;
-    margin: 12px;
-}
+h1 { color: #ffcc55; margin: 12px; }
 
 #game {
     display: block;
@@ -43,11 +37,7 @@ h1 {
     font-weight: bold;
 }
 
-#instructions {
-    padding: 10px;
-    color: #ddd;
-    font-size: 14px;
-}
+#instructions { padding: 10px; color: #ddd; font-size: 14px; }
 
 .screen {
     position: fixed;
@@ -61,9 +51,7 @@ h1 {
     z-index: 5;
 }
 
-.hidden {
-    display: none !important;
-}
+.hidden { display: none !important; }
 
 button {
     background: #ffcc55;
@@ -87,9 +75,7 @@ input {
     text-align: center;
 }
 
-#ranking {
-    line-height: 1.6;
-}
+#ranking { line-height: 1.6; margin: 10px; }
 </style>
 </head>
 
@@ -107,8 +93,7 @@ input {
 <canvas id="game" width="1000" height="550"></canvas>
 
 <div id="instructions">
-    A/D ou ←/→: andar | ESPAÇO: pular |
-    X: atacar | SHIFT: correr
+    A/D ou ←/→: andar | ESPAÇO, W ou ↑: pular | X: atacar | SHIFT: correr
 </div>
 
 <div id="menu" class="screen">
@@ -124,7 +109,7 @@ input {
     <h1>📱 CHEGOU A HORA!</h1>
     <h2>O CHEFÃO: CELULAR VICIANTE</h2>
     <p>Ele não vai deixar você dormir!</p>
-    <p>Espere ele ficar vulnerável e ataque com X.</p>
+    <p>Chegue perto, espere a tela ficar verde e ataque com X.</p>
     <button onclick="startBoss()">ENFRENTAR!</button>
 </div>
 
@@ -140,7 +125,7 @@ input {
     <h2>Finalmente chegou a hora de dormir!</h2>
     <p id="victoryTime"></p>
     <input id="winnerName" maxlength="15" placeholder="Seu nome">
-    <button onclick="saveRecord()">SALVAR TEMPO</button>
+    <button id="saveBtn" onclick="saveRecord()">SALVAR TEMPO</button>
     <div id="ranking"></div>
     <button onclick="backToMenu()">MENU</button>
 </div>
@@ -171,9 +156,11 @@ let distance = 0;
 let lives = 3;
 let gameTime = 0;
 let bossTime = 0;
+let finalTime = 0;
 
 let obstacleCounter = 0;
 let attackCooldown = 0;
+let attackFlash = 0;
 let invulnerability = 0;
 
 let lastFrame = 0;
@@ -184,14 +171,35 @@ let keys = {};
 const gravity = 1800;
 const jumpPower = -650;
 const scrollSpeed = 330;
-
-const playerNameInput =
-    document.getElementById("playerName");
+const RANKING_KEY = "desafioCamaRanking";
 
 function hideScreens() {
-    document.querySelectorAll(".screen").forEach(screen => {
-        screen.classList.add("hidden");
-    });
+    document.querySelectorAll(".screen").forEach(s => s.classList.add("hidden"));
+}
+
+function showScreen(id) {
+    hideScreens();
+    document.getElementById(id).classList.remove("hidden");
+}
+
+function stopLoop() {
+    if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+}
+
+function startLoop() {
+    stopLoop();
+    lastFrame = performance.now();
+    animationId = requestAnimationFrame(loop);
+}
+
+// Tira o foco de botões/inputs para o ESPAÇO não "clicar" neles
+function releaseFocus() {
+    if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+    }
 }
 
 function createPlayer() {
@@ -212,12 +220,10 @@ function createPlayer() {
 // ===================================
 
 function startGame() {
-    if (animationId !== null) {
-        cancelAnimationFrame(animationId);
-    }
-
+    releaseFocus();
     hideScreens();
 
+    keys = {};
     player = createPlayer();
 
     obstacles = [];
@@ -233,14 +239,12 @@ function startGame() {
 
     obstacleCounter = 0;
     attackCooldown = 0;
+    attackFlash = 0;
     invulnerability = 0;
 
     state = "playing";
-
     updateHUD();
-
-    lastFrame = performance.now();
-    animationId = requestAnimationFrame(loop);
+    startLoop();
 }
 
 function restartGame() {
@@ -248,51 +252,51 @@ function restartGame() {
 }
 
 function backToMenu() {
-    if (animationId !== null) {
-        cancelAnimationFrame(animationId);
-        animationId = null;
-    }
-
+    stopLoop();
     state = "menu";
-    hideScreens();
-
-    document.getElementById("menu")
-        .classList.remove("hidden");
+    showScreen("menu");
 }
 
-window.addEventListener("keydown", function(e) {
-    const key = e.key.toLowerCase();
+function isActive() {
+    return state === "playing" || state === "boss";
+}
 
-    keys[key] = true;
-
-    if (
-        e.code === "Space" ||
-        e.key.startsWith("Arrow")
-    ) {
-        e.preventDefault();
-    }
-
-    if (
-        e.code === "Space" &&
-        state === "playing" &&
-        player &&
-        player.onGround
-    ) {
+function jump() {
+    if (isActive() && player && player.onGround) {
         player.vy = jumpPower;
         player.onGround = false;
     }
+}
 
-    if (
-        key === "x" &&
-        (state === "playing" || state === "boss")
-    ) {
+window.addEventListener("keydown", function (e) {
+    // Não atrapalhar quem está digitando o nome
+    if (e.target.tagName === "INPUT") return;
+
+    const key = e.key.toLowerCase();
+    const wasPressed = keys[key];
+    keys[key] = true;
+
+    if (e.code === "Space" || e.key.startsWith("Arrow")) {
+        e.preventDefault();
+    }
+
+    if (wasPressed) return; // ignora repetição automática da tecla
+
+    if (e.code === "Space" || key === "w" || key === "arrowup") {
+        jump();
+    }
+
+    if (key === "x" && isActive()) {
         attack();
     }
 });
 
-window.addEventListener("keyup", function(e) {
+window.addEventListener("keyup", function (e) {
     keys[e.key.toLowerCase()] = false;
 });
+
+// Se a janela perde o foco, solta todas as teclas
+window.addEventListener("blur", () => { keys = {}; });
 
 // ===================================
 // COLISÕES
@@ -307,17 +311,34 @@ function collision(a, b) {
     );
 }
 
+function hurtPlayer() {
+    if (invulnerability > 0) return false;
+
+    lives--;
+    invulnerability = 1.2;
+
+    createParticles(
+        player.x + player.w / 2,
+        player.y + player.h / 2,
+        "#ff5555"
+    );
+
+    updateHUD();
+
+    if (lives <= 0) {
+        finish(false);
+        return true;
+    }
+    return false;
+}
+
 // ===================================
 // MOVIMENTAÇÃO DO PERSONAGEM
 // ===================================
 
 function updatePlayer(dt) {
-    const left =
-        keys["a"] || keys["arrowleft"];
-
-    const right =
-        keys["d"] || keys["arrowright"];
-
+    const left = keys["a"] || keys["arrowleft"];
+    const right = keys["d"] || keys["arrowright"];
     const running = keys["shift"];
 
     const speed = running ? 480 : 300;
@@ -335,11 +356,7 @@ function updatePlayer(dt) {
     }
 
     player.x += player.vx * dt;
-
-    player.x = Math.max(
-        0,
-        Math.min(W - player.w, player.x)
-    );
+    player.x = Math.max(0, Math.min(W - player.w, player.x));
 
     player.vy += gravity * dt;
     player.y += player.vy * dt;
@@ -350,13 +367,9 @@ function updatePlayer(dt) {
         player.onGround = true;
     }
 
-    if (attackCooldown > 0) {
-        attackCooldown -= dt;
-    }
-
-    if (invulnerability > 0) {
-        invulnerability -= dt;
-    }
+    if (attackCooldown > 0) attackCooldown -= dt;
+    if (attackFlash > 0) attackFlash -= dt;
+    if (invulnerability > 0) invulnerability -= dt;
 }
 
 // ===================================
@@ -372,9 +385,7 @@ function spawnObstacle() {
         { emoji: "📦", w: 55, h: 50 }
     ];
 
-    const type = types[
-        Math.floor(Math.random() * types.length)
-    ];
+    const type = types[Math.floor(Math.random() * types.length)];
 
     obstacles.push({
         x: W + 30,
@@ -398,31 +409,13 @@ function updateObstacles(dt) {
 
     for (let i = obstacles.length - 1; i >= 0; i--) {
         const obstacle = obstacles[i];
-
         obstacle.x -= speed;
 
         if (collision(player, obstacle)) {
-            if (invulnerability <= 0) {
-                lives--;
-                invulnerability = 1.2;
-
-                createParticles(
-                    player.x + player.w / 2,
-                    player.y + player.h / 2,
-                    "#ff5555"
-                );
-
-                if (lives <= 0) {
-                    finish(false);
-                    return;
-                }
-            }
+            if (hurtPlayer()) return;
         }
 
-        if (
-            !obstacle.passed &&
-            obstacle.x + obstacle.w < player.x
-        ) {
+        if (!obstacle.passed && obstacle.x + obstacle.w < player.x) {
             obstacle.passed = true;
             score += 10;
         }
@@ -454,14 +447,11 @@ function createParticles(x, y, color) {
 function updateParticles(dt) {
     for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt * 1.5;
 
-        if (p.life <= 0) {
-            particles.splice(i, 1);
-        }
+        if (p.life <= 0) particles.splice(i, 1);
     }
 }
 
@@ -481,10 +471,9 @@ function updateGame(dt) {
 
     if (distance >= 5500) {
         state = "bossIntro";
-
-        document.getElementById("bossIntro")
-            .classList.remove("hidden");
-
+        keys = {};
+        updateHUD();
+        showScreen("bossIntro");
         return;
     }
 
@@ -496,17 +485,14 @@ function updateGame(dt) {
 // ===================================
 
 function updateHUD() {
-    document.getElementById("lives").textContent =
-        "❤️ Vidas: " + lives;
-
-    document.getElementById("score").textContent =
-        "⭐ Pontos: " + score;
-
-    document.getElementById("distance").textContent =
-        "📍 Distância: " + Math.floor(distance);
+    document.getElementById("lives").textContent = "❤️ Vidas: " + Math.max(0, lives);
+    document.getElementById("score").textContent = "⭐ Pontos: " + score;
+    document.getElementById("distance").textContent = "📍 Distância: " + Math.floor(distance);
 
     document.getElementById("timer").textContent =
-        "⏱️ Tempo: " + gameTime.toFixed(2) + "s";
+        state === "boss"
+            ? "⏱️ CHEFÃO: " + bossTime.toFixed(2) + "s"
+            : "⏱️ Tempo: " + gameTime.toFixed(2) + "s";
 }
 
 // ===================================
@@ -514,13 +500,16 @@ function updateHUD() {
 // ===================================
 
 function startBoss() {
+    releaseFocus();
     hideScreens();
 
+    keys = {};
     state = "boss";
 
     bossTime = 0;
     bossProjectiles = [];
     particles = [];
+    obstacles = [];
 
     boss = {
         x: W - 200,
@@ -539,12 +528,14 @@ function startBoss() {
     player.y = ground - player.h;
     player.vx = 0;
     player.vy = 0;
+    player.onGround = true;
 
     attackCooldown = 0;
+    attackFlash = 0;
     invulnerability = 0;
 
-    lastFrame = performance.now();
-    animationId = requestAnimationFrame(loop);
+    updateHUD();
+    startLoop();
 }
 
 // ===================================
@@ -555,48 +546,37 @@ function attack() {
     if (attackCooldown > 0) return;
 
     attackCooldown = 0.4;
+    attackFlash = 0.15;
 
     if (state === "playing") {
-        createParticles(
-            player.x + player.w / 2,
-            player.y + 20,
-            "#ffcc55"
-        );
-
+        createParticles(player.x + player.w / 2, player.y + 20, "#ffcc55");
         score += 2;
+        updateHUD();
         return;
     }
 
     if (state !== "boss" || !boss) return;
 
-    const dx = Math.abs(
-        (player.x + player.w / 2) -
-        (boss.x + boss.w / 2)
-    );
+    const dx = Math.abs((player.x + player.w / 2) - (boss.x + boss.w / 2));
+    const dy = Math.abs((player.y + player.h / 2) - (boss.y + boss.h / 2));
 
-    const dy = Math.abs(
-        (player.y + player.h / 2) -
-        (boss.y + boss.h / 2)
-    );
-
-    if (
-        dx < 155 &&
-        dy < 145 &&
-        boss.vulnerable
-    ) {
+    if (dx < 155 && dy < 145 && boss.vulnerable) {
         boss.hp--;
 
-        createParticles(
-            boss.x + boss.w / 2,
-            boss.y + boss.h / 2,
-            "#55ffbb"
-        );
+        createParticles(boss.x + boss.w / 2, boss.y + boss.h / 2, "#55ffbb");
 
         score += 50;
+        updateHUD();
 
         if (boss.hp <= 0) {
             finish(true);
         }
+    } else {
+        createParticles(
+            player.x + player.w / 2 + player.facing * 30,
+            player.y + 25,
+            "#ffcc55"
+        );
     }
 }
 
@@ -607,30 +587,26 @@ function attack() {
 function updateBoss(dt) {
     if (!boss || state !== "boss") return;
 
+    // O jogador agora se move durante o chefão
+    updatePlayer(dt);
+
     bossTime += dt;
     boss.timer += dt;
     boss.attackTimer -= dt;
 
-    boss.vulnerable =
-        (boss.timer % 4.5) > 2.3;
+    boss.vulnerable = (boss.timer % 4.5) > 2.3;
 
     // Movimento do celular
     boss.x += boss.direction * 75 * dt;
 
-    if (boss.x < W - 390) {
-        boss.direction = 1;
-    }
-
-    if (boss.x > W - 150) {
-        boss.direction = -1;
-    }
+    if (boss.x < W - 390) boss.direction = 1;
+    if (boss.x > W - 150) boss.direction = -1;
 
     // Ataques do celular
     if (boss.attackTimer <= 0) {
         boss.attackTimer = 2.2;
 
-        const attackType =
-            Math.floor(Math.random() * 3);
+        const attackType = Math.floor(Math.random() * 3);
 
         if (attackType === 0) {
             // Chuva de notificações
@@ -645,9 +621,7 @@ function updateBoss(dt) {
                     emoji: "🔔"
                 });
             }
-        }
-
-        else if (attackType === 1) {
+        } else if (attackType === 1) {
             // Mensagem
             bossProjectiles.push({
                 x: boss.x,
@@ -658,9 +632,7 @@ function updateBoss(dt) {
                 vy: 0,
                 emoji: "💬"
             });
-        }
-
-        else {
+        } else {
             // Onda elétrica
             bossProjectiles.push({
                 x: boss.x,
@@ -675,65 +647,119 @@ function updateBoss(dt) {
     }
 
     // Atualizar projéteis
-    for (
-        let i = bossProjectiles.length - 1;
-        i >= 0;
-        i--
-    ) {
+    for (let i = bossProjectiles.length - 1; i >= 0; i--) {
         const p = bossProjectiles[i];
 
         p.x += p.vx * dt;
         p.y += p.vy * dt;
 
         if (collision(player, p)) {
-            if (invulnerability <= 0) {
-                lives--;
-                invulnerability = 1.2;
-
-                createParticles(
-                    player.x + player.w / 2,
-                    player.y + player.h / 2,
-                    "#ff5555"
-                );
-
-                if (lives <= 0) {
-                    finish(false);
-                    return;
-                }
-            }
-
             bossProjectiles.splice(i, 1);
+            if (hurtPlayer()) return;
             continue;
         }
 
-        if (
-            p.x < -60 ||
-            p.x > W + 60 ||
-            p.y > H + 60
-        ) {
+        if (p.x < -60 || p.x > W + 60 || p.y > H + 60) {
             bossProjectiles.splice(i, 1);
         }
     }
 
-    // Colisão com o corpo do celular
-    if (
-        collision(player, boss) &&
-        invulnerability <= 0
-    ) {
-        lives--;
-        invulnerability = 1.2;
-
-        if (lives <= 0) {
-            finish(false);
-            return;
+    // Colisão com o corpo do celular (empurra o jogador para trás)
+    if (collision(player, boss)) {
+        if (invulnerability <= 0) {
+            player.x = Math.max(0, boss.x - player.w - 40);
+            if (hurtPlayer()) return;
         }
     }
 
     updateParticles(dt);
     updateHUD();
+}
 
-    document.getElementById("timer").textContent =
-        "⏱️ CHEFÃO: " + bossTime.toFixed(2) + "s";
+// ===================================
+// FIM DE JOGO E RANKING
+// ===================================
+
+function finish(won) {
+    stopLoop();
+    keys = {};
+
+    if (won) {
+        state = "victory";
+        finalTime = gameTime + bossTime;
+
+        document.getElementById("victoryTime").textContent =
+            "Tempo total: " + finalTime.toFixed(2) + "s | Pontos: " + score;
+
+        const nameInput = document.getElementById("winnerName");
+        nameInput.value = document.getElementById("playerName").value.trim();
+
+        const saveBtn = document.getElementById("saveBtn");
+        saveBtn.disabled = false;
+        saveBtn.textContent = "SALVAR TEMPO";
+
+        showRanking();
+        showScreen("victory");
+    } else {
+        state = "gameover";
+
+        document.getElementById("finalScore").textContent =
+            "Pontos: " + score + " | Distância: " + Math.floor(distance);
+
+        showScreen("gameOver");
+    }
+
+    // Desenha o último quadro
+    if (boss) drawBossScene(); else drawGame();
+}
+
+function loadRanking() {
+    try {
+        const data = JSON.parse(localStorage.getItem(RANKING_KEY));
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveRecord() {
+    const name =
+        document.getElementById("winnerName").value.trim() || "Anônimo";
+
+    const ranking = loadRanking();
+    ranking.push({ name: name, time: finalTime, score: score });
+    ranking.sort((a, b) => a.time - b.time);
+
+    try {
+        localStorage.setItem(RANKING_KEY, JSON.stringify(ranking.slice(0, 10)));
+    } catch (e) {
+        // Navegador sem armazenamento: mostra só nesta sessão
+    }
+
+    const saveBtn = document.getElementById("saveBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "SALVO!";
+
+    showRanking(ranking.slice(0, 10));
+}
+
+function showRanking(list) {
+    const ranking = list || loadRanking();
+    const box = document.getElementById("ranking");
+
+    if (ranking.length === 0) {
+        box.innerHTML = "<p>Nenhum recorde ainda.</p>";
+        return;
+    }
+
+    box.innerHTML = "<h3>🏅 RANKING</h3>";
+
+    ranking.forEach((r, i) => {
+        const line = document.createElement("div");
+        line.textContent =
+            (i + 1) + ". " + r.name + " — " + r.time.toFixed(2) + "s (" + r.score + " pts)";
+        box.appendChild(line);
+    });
 }
 
 // ===================================
@@ -747,36 +773,17 @@ function drawBoss() {
 
     // Corpo do celular
     ctx.fillStyle = "#15151d";
-
-    ctx.fillRect(
-        boss.x,
-        boss.y,
-        boss.w,
-        boss.h
-    );
+    ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
 
     // Tela
-    ctx.fillStyle = boss.vulnerable
-        ? "#55ffbb"
-        : "#b83d55";
-
-    ctx.fillRect(
-        boss.x + 8,
-        boss.y + 12,
-        boss.w - 16,
-        boss.h - 27
-    );
+    ctx.fillStyle = boss.vulnerable ? "#55ffbb" : "#b83d55";
+    ctx.fillRect(boss.x + 8, boss.y + 12, boss.w - 16, boss.h - 27);
 
     // Rosto
     ctx.font = "48px Arial";
     ctx.textAlign = "center";
     ctx.fillStyle = "#ffffff";
-
-    ctx.fillText(
-        boss.vulnerable ? "😵" : "😈",
-        boss.x + boss.w / 2,
-        boss.y + 85
-    );
+    ctx.fillText(boss.vulnerable ? "😵" : "😈", boss.x + boss.w / 2, boss.y + 85);
 
     ctx.restore();
 
@@ -787,13 +794,7 @@ function drawBoss() {
     ctx.fillRect(390, 25, barWidth, 18);
 
     ctx.fillStyle = "#ff4444";
-
-    ctx.fillRect(
-        390,
-        25,
-        barWidth * (boss.hp / boss.maxHp),
-        18
-    );
+    ctx.fillRect(390, 25, barWidth * Math.max(0, boss.hp / boss.maxHp), 18);
 
     ctx.strokeStyle = "#fff";
     ctx.strokeRect(390, 25, barWidth, 18);
@@ -801,13 +802,10 @@ function drawBoss() {
     ctx.fillStyle = "#fff";
     ctx.font = "16px Arial";
     ctx.textAlign = "center";
-
     ctx.fillText("VIDA DO CELULAR", 500, 17);
 
     ctx.fillText(
-        boss.vulnerable
-            ? "ATAQUE AGORA!"
-            : "ESPERE ELE FICAR VULNERÁVEL!",
+        boss.vulnerable ? "ATAQUE AGORA!" : "ESPERE ELE FICAR VULNERÁVEL!",
         500,
         70
     );
@@ -818,10 +816,7 @@ function drawBoss() {
 // ===================================
 
 function drawBackground() {
-    const gradient = ctx.createLinearGradient(
-        0, 0, 0, H
-    );
-
+    const gradient = ctx.createLinearGradient(0, 0, 0, H);
     gradient.addColorStop(0, "#222744");
     gradient.addColorStop(1, "#777b9b");
 
@@ -836,11 +831,9 @@ function drawBackground() {
 
     // Estrelas
     ctx.fillStyle = "#ffffff";
-
     for (let i = 0; i < 35; i++) {
         const x = (i * 137) % W;
         const y = (i * 53) % 260;
-
         ctx.fillRect(x, y, 3, 3);
     }
 
@@ -861,123 +854,69 @@ function drawPlayer() {
 
     ctx.save();
 
-    if (
-        invulnerability > 0 &&
-        Math.floor(invulnerability * 12) % 2 === 0
-    ) {
+    if (invulnerability > 0 && Math.floor(invulnerability * 12) % 2 === 0) {
         ctx.globalAlpha = 0.35;
     }
 
     // Corpo
     ctx.fillStyle = "#ffcc55";
-
-    ctx.fillRect(
-        player.x,
-        player.y + 18,
-        player.w,
-        player.h - 18
-    );
+    ctx.fillRect(player.x, player.y + 18, player.w, player.h - 18);
 
     // Cabeça
     ctx.fillStyle = "#ffd6b0";
-
     ctx.beginPath();
-
-    ctx.arc(
-        player.x + player.w / 2,
-        player.y + 15,
-        17,
-        0,
-        Math.PI * 2
-    );
-
+    ctx.arc(player.x + player.w / 2, player.y + 15, 17, 0, Math.PI * 2);
     ctx.fill();
 
     // Cabelo
     ctx.fillStyle = "#49302c";
-
-    ctx.fillRect(
-        player.x + 9,
-        player.y - 2,
-        30,
-        12
-    );
+    ctx.fillRect(player.x + 9, player.y - 2, 30, 12);
 
     // Olhos
     ctx.fillStyle = "#222";
-
-    ctx.fillRect(
-        player.x + 13,
-        player.y + 13,
-        4,
-        4
-    );
-
-    ctx.fillRect(
-        player.x + 29,
-        player.y + 13,
-        4,
-        4
-    );
+    ctx.fillRect(player.x + 13, player.y + 13, 4, 4);
+    ctx.fillRect(player.x + 29, player.y + 13, 4, 4);
 
     // Pernas
     ctx.fillStyle = "#333b80";
+    ctx.fillRect(player.x + 5, player.y + player.h - 12, 15, 12);
+    ctx.fillRect(player.x + 28, player.y + player.h - 12, 15, 12);
 
-    ctx.fillRect(
-        player.x + 5,
-        player.y + player.h - 12,
-        15,
-        12
-    );
-
-    ctx.fillRect(
-        player.x + 28,
-        player.y + player.h - 12,
-        15,
-        12
-    );
+    // Golpe (travesseiro)
+    if (attackFlash > 0) {
+        ctx.font = "32px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(
+            "💥",
+            player.x + player.w / 2 + player.facing * 45,
+            player.y + 40
+        );
+    }
 
     ctx.restore();
 }
 
 // ===================================
-// DESENHO DOS OBSTÁCULOS
+// DESENHO DOS OBSTÁCULOS E PROJÉTEIS
 // ===================================
 
 function drawObstacles() {
     ctx.textAlign = "center";
+    ctx.font = "45px Arial";
 
-    for (const obstacle of obstacles) {
-        ctx.font = "45px Arial";
-
-        ctx.fillText(
-            obstacle.emoji,
-            obstacle.x + obstacle.w / 2,
-            obstacle.y + obstacle.h
-        );
+    for (const o of obstacles) {
+        ctx.fillText(o.emoji, o.x + o.w / 2, o.y + o.h);
     }
 }
-
-// ===================================
-// DESENHO DOS PROJÉTEIS
-// ===================================
 
 function drawProjectiles() {
     ctx.textAlign = "center";
     ctx.font = "32px Arial";
 
     for (const p of bossProjectiles) {
-        ctx.fillText(
-            p.emoji,
-            p.x + p.w / 2,
-            p.y + p.h
-        );
+        ctx.fillText(p.emoji, p.x + p.w / 2, p.y + p.h);
     }
 }
-
-// ===================================
-// DESENHO DAS PARTÍCULAS
-// ===================================
 
 function drawParticles() {
     for (const p of particles) {
@@ -985,15 +924,7 @@ function drawParticles() {
         ctx.fillStyle = p.color || "#ffffff";
 
         ctx.beginPath();
-
-        ctx.arc(
-            p.x,
-            p.y,
-            p.size || 3,
-            0,
-            Math.PI * 2
-        );
-
+        ctx.arc(p.x, p.y, p.size || 3, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -1024,165 +955,28 @@ function drawBossScene() {
 // ===================================
 
 function loop(timestamp) {
-    const dt = Math.min(
-        (timestamp - lastFrame) / 1000,
-        0.04
-    );
-
+    const dt = Math.min((timestamp - lastFrame) / 1000, 0.05);
     lastFrame = timestamp;
 
     if (state === "playing") {
         updateGame(dt);
-        drawGame();
-    }
-
-    else if (state === "boss") {
-        updatePlayer(dt);
+        if (state === "playing" || state === "bossIntro") drawGame();
+    } else if (state === "boss") {
         updateBoss(dt);
-
-        if (state === "boss") {
-            drawBossScene();
-        }
+        if (state === "boss") drawBossScene();
     }
 
-    else {
-        animationId = null;
-        return;
-    }
-
-    if (
-        state === "playing" ||
-        state === "boss"
-    ) {
+    // Só continua o loop enquanto houver fase ativa
+    if (state === "playing" || state === "boss") {
         animationId = requestAnimationFrame(loop);
     } else {
         animationId = null;
     }
 }
 
-// ===================================
-// VITÓRIA E DERROTA
-// ===================================
-
-function finish(won) {
-    if (
-        state === "victory" ||
-        state === "gameOver"
-    ) {
-        return;
-    }
-
-    if (animationId !== null) {
-        cancelAnimationFrame(animationId);
-        animationId = null;
-    }
-
-    hideScreens();
-
-    if (won) {
-        state = "victory";
-
-        document.getElementById("victoryTime")
-            .textContent =
-            "Seu tempo: " +
-            bossTime.toFixed(2) +
-            " segundos!";
-
-        document.getElementById("winnerName").value =
-            playerNameInput.value.trim();
-
-        document.getElementById("victory")
-            .classList.remove("hidden");
-
-        showRanking();
-    }
-
-    else {
-        state = "gameOver";
-
-        document.getElementById("finalScore")
-            .textContent =
-            "Pontuação: " + score +
-            " | Distância: " + Math.floor(distance);
-
-        document.getElementById("gameOver")
-            .classList.remove("hidden");
-    }
-}
-
-// ===================================
-// RANKING DOS CINCO MELHORES
-// ===================================
-
-function getRecords() {
-    try {
-        return JSON.parse(
-            localStorage.getItem("desafioRanking")
-        ) || [];
-    } catch (error) {
-        return [];
-    }
-}
-
-function saveRecord() {
-    const name =
-        document.getElementById("winnerName")
-            .value.trim() || "Jogador";
-
-    const records = getRecords();
-
-    records.push({
-        name: name,
-        time: bossTime
-    });
-
-    records.sort((a, b) => a.time - b.time);
-
-    const topFive = records.slice(0, 5);
-
-    try {
-        localStorage.setItem(
-            "desafioRanking",
-            JSON.stringify(topFive)
-        );
-    } catch (error) {
-        alert("Não foi possível salvar o ranking neste navegador.");
-    }
-
-    showRanking();
-
-    document.getElementById("winnerName").value = "";
-}
-
-function showRanking() {
-    const ranking = getRecords();
-
-    let html = "<h3>🏆 MELHORES TEMPOS</h3>";
-
-    if (ranking.length === 0) {
-        html += "<p>Ninguém venceu ainda!</p>";
-    }
-
-    ranking.forEach((record, index) => {
-        html +=
-            "<p>" +
-            (index + 1) +
-            "º - " +
-            record.name +
-            ": " +
-            Number(record.time).toFixed(2) +
-            "s</p>";
-    });
-
-    document.getElementById("ranking").innerHTML = html;
-}
-
-// ===================================
-// FINAL DO ARQUIVO
-// ===================================
-
-showRanking();
-
+// Desenha a tela de fundo inicial
+drawBackground();
 </script>
+
 </body>
 </html>
